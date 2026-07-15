@@ -1,0 +1,36 @@
+defaults:
+- _self_
+- launcher: local
+- data: pusht
+- model: lewm
+embed_dim: 192
+history_size: 60
+img_size: 224
+loader:
+  batch_size: 64
+  num_workers: ${num_workers}
+  persistent_workers: true
+  pin_memory: true
+  prefetch_factor: 3
+loss:
+  sigreg:
+    kwargs:
+      knots: 17
+      num_proj: 1024
+    weight: 0.09
+num_preds: 1
+num_workers: 4
+optimizer:
+  lr: 5e-5
+  type: AdamW
+  weight_decay: 1e-3
+output_model_name: lewm
+seed: 3072
+subdir: ${hydra:job.id}
+train_split: 0.9
+trainer:
+  accelerator: gpu
+  devices: auto
+  gradient_clip_val: 1.0
+  max_epochs: 100
+  precision: bf16

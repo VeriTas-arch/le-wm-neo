@@ -1,0 +1,11 @@
+dataset:
+  num_steps: 100     # ✨ 匹配新数据，门槛降到 60
+  frameskip: 1
+  name: /root/autodl-tmp/.stable_worldmodel/datasets/wm_maze_optimized.h5
+  keys_to_load:
+    - pixels
+    - action
+    - cue_color
+  keys_to_cache:
+    - action
+    - cue_color
