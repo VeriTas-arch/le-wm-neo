@@ -58,3 +58,17 @@ class SaveCkptCallback(Callback):
             config=self.cfg,
             filename=f'weights_epoch_{epoch}.pt',
         )
+
+
+class StopAfterEpoch(Callback):
+    """Stop at a fixed epoch without shortening the scheduler horizon."""
+
+    def __init__(self, stop_epoch: int):
+        super().__init__()
+        if stop_epoch < 1:
+            raise ValueError("stop_epoch must be at least 1")
+        self.stop_epoch = stop_epoch
+
+    def on_train_epoch_end(self, trainer, pl_module):
+        if trainer.current_epoch + 1 >= self.stop_epoch:
+            trainer.should_stop = True

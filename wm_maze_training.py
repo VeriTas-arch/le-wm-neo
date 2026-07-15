@@ -16,7 +16,7 @@ def _masked_cross_entropy(logits, labels, mask):
     return F.cross_entropy(logits[mask], labels[mask])
 
 
-def lejepa_forward_fixed(self, batch, stage, cfg):
+def wm_maze_forward(self, batch, stage, cfg):
     ctx_len = cfg.history_size
     n_preds = cfg.num_preds
     lambd = cfg.loss.sigreg.weight
@@ -61,6 +61,8 @@ def lejepa_forward_fixed(self, batch, stage, cfg):
     act_label = batch["action"][:, :ctx_len].squeeze(-1).long()
     decision_mask = batch["decision_mask"][:, :ctx_len].bool()
     output["act_loss"] = _masked_cross_entropy(act_logits, act_label, decision_mask)
+    output["cue_logits"] = cue_logits
+    output["act_logits"] = act_logits
 
     output["loss"] = (
         output["pred_loss"]

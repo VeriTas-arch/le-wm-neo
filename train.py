@@ -14,10 +14,16 @@ from lightning.pytorch.loggers import WandbLogger
 from omegaconf import OmegaConf, open_dict
 
 from module import SIGReg
-from utils import get_column_normalizer, get_img_preprocessor, SaveCkptCallback
+from utils import (
+    SaveCkptCallback,
+    StopAfterEpoch,
+    get_column_normalizer,
+    get_img_preprocessor,
+)
 
 
-from train_fix import lejepa_forward_fixed as lejepa_forward
+from wm_maze_training import wm_maze_forward
+from wm_maze_video import WMMazeValidationVideo
 
 
 def custom_collate(batch):
@@ -127,7 +133,7 @@ def run(cfg):
     world_model = spt.Module(
         model=world_model,
         sigreg=SIGReg(**cfg.loss.sigreg.kwargs),
-        forward=partial(lejepa_forward, cfg=cfg),
+        forward=partial(wm_maze_forward, cfg=cfg),
         optim=optimizers,
     )
 
@@ -152,10 +158,21 @@ def run(cfg):
     object_dump_callback = SaveCkptCallback(
         run_name=cfg.output_model_name, cfg=cfg.model, epoch_interval=1
     )
+    callbacks = [object_dump_callback]
+    if cfg.stop_after_epoch is not None:
+        callbacks.append(StopAfterEpoch(cfg.stop_after_epoch))
+    if cfg.validation_video.enabled:
+        callbacks.append(
+            WMMazeValidationVideo(
+                every_n_epochs=cfg.validation_video.every_n_epochs,
+                fps=cfg.validation_video.fps,
+                sample_index=cfg.validation_video.sample_index,
+            )
+        )
 
     trainer = pl.Trainer(
         **cfg.trainer,
-        callbacks=[object_dump_callback],
+        callbacks=callbacks,
         num_sanity_val_steps=1,
         logger=logger,
         enable_checkpointing=True,

@@ -3,3 +3,6 @@
 **/__pycache__/
 outputs/
 data/cache/
+data/datasets/
+data/checkpoints/
+data/validation/

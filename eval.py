@@ -151,7 +151,7 @@ def run(cfg: DictConfig):
         video=results_path,
     )
     end_time = time.time()
-    
+
     print(metrics)
 
     results_path = results_path / cfg.output.filename

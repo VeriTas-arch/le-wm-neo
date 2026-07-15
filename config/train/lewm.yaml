@@ -26,8 +26,14 @@ optimizer:
   weight_decay: 1e-3
 output_model_name: lewm
 seed: 3072
+stop_after_epoch: 10
 subdir: ${hydra:job.id}
 train_split: 0.9
+validation_video:
+  enabled: true
+  every_n_epochs: 1
+  fps: 4.0
+  sample_index: 0
 trainer:
   accelerator: gpu
   devices: auto

@@ -1,15 +1,19 @@
 """Evaluate memory and action probes on maze decision frames."""
 
 import argparse
+import os
+import re
 from pathlib import Path
 
 import hydra
+import stable_pretraining as spt
 import torch
 from omegaconf import open_dict
 
-from gen_data_perfect import default_output_path
+from generate_wm_maze import default_output_path
 from hdf5_dataset import HDF5Dataset
 from utils import get_img_preprocessor
+from wm_maze_video import WMMazeValidationVideo
 
 
 def load_model(checkpoint, device):
@@ -77,11 +81,61 @@ def evaluate(model, cfg, dataset, device, max_episodes):
     print(f"All-memory cue accuracy: {memory_correct / memory_total:.2%}")
 
 
+@torch.inference_mode()
+def export_validation_video(
+    model, cfg, dataset, checkpoint, device, sample_index, fps, output
+):
+    """Export one deterministic sample from the same validation split as train.py."""
+    generator = torch.Generator().manual_seed(cfg.seed)
+    _, validation = spt.data.random_split(
+        dataset,
+        lengths=[cfg.train_split, 1 - cfg.train_split],
+        generator=generator,
+    )
+    if not 0 <= sample_index < len(validation):
+        raise IndexError(
+            f"validation sample {sample_index} is outside [0, {len(validation)})"
+        )
+
+    preprocess = get_img_preprocessor("pixels", "pixels", cfg.img_size)
+    sample = preprocess(validation[sample_index])
+    batch = {
+        key: value.unsqueeze(0).to(device)
+        for key, value in sample.items()
+    }
+    encoded = model.encode(batch)
+    context = encoded["emb"][:, : cfg.history_size]
+    memory = model.predictor.memory_states(context)
+    outputs = {
+        "cue_logits": model.cue_probe(memory),
+        "act_logits": model.action_probe(memory),
+    }
+
+    match = re.search(r"epoch_(\d+)", checkpoint.stem)
+    epoch = int(match.group(1)) if match else 0
+    if output is None:
+        root = Path(os.environ.get("STABLEWM_HOME", "data")) / "validation"
+        output = root / (
+            f"formal_epoch_{epoch:03d}_validation_{sample_index:04d}.mp4"
+        )
+    exporter = WMMazeValidationVideo(fps=fps, sample_index=0)
+    exporter._write(epoch, batch, outputs, video_path=output)
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("checkpoint", type=Path)
     parser.add_argument("--data", type=Path, default=default_output_path())
     parser.add_argument("--episodes", type=int, default=100)
+    parser.add_argument(
+        "--video", action="store_true", help="export one annotated validation video"
+    )
+    parser.add_argument(
+        "--video-only", action="store_true", help="skip aggregate metrics"
+    )
+    parser.add_argument("--video-index", type=int, default=0)
+    parser.add_argument("--video-output", type=Path)
+    parser.add_argument("--fps", type=float, default=4.0)
     parser.add_argument(
         "--device", default="cuda" if torch.cuda.is_available() else "cpu"
     )
@@ -94,7 +148,19 @@ def main():
         frameskip=1,
         keys_to_load=list(cfg.data.dataset.keys_to_load),
     )
-    evaluate(model, cfg, dataset, args.device, args.episodes)
+    if not args.video_only:
+        evaluate(model, cfg, dataset, args.device, args.episodes)
+    if args.video or args.video_only:
+        export_validation_video(
+            model,
+            cfg,
+            dataset,
+            args.checkpoint,
+            args.device,
+            args.video_index,
+            args.fps,
+            args.video_output,
+        )
 
 
 if __name__ == "__main__":

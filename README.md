@@ -3,6 +3,9 @@
 
 ## Stable End-to-End Joint-Embedding Predictive Architecture from Pixels
 
+当前工作记忆迷宫分支相对基线代码的完整修改记录见
+[docs/working-memory-maze-changes.md](docs/working-memory-maze-changes.md)。
+
 [Lucas Maes*](https://x.com/lucasmaes_), [Quentin Le Lidec*](https://quentinll.github.io/), [Damien Scieur](https://scholar.google.com/citations?user=hNscQzgAAAAJ&hl=fr), [Yann LeCun](https://yann.lecun.com/) and [Randall Balestriero](https://randallbalestriero.github.io/)
 
 **Abstract:** Joint Embedding Predictive Architectures (JEPAs) offer a compelling framework for learning world models in compact latent spaces, yet existing methods remain fragile, relying on complex multi-term losses, exponential moving averages, pretrained encoders, or auxiliary supervision to avoid representation collapse. In this work, we introduce LeWorldModel (LeWM), the first JEPA that trains stably end-to-end from raw pixels using only two loss terms: a next-embedding prediction loss and a regularizer enforcing Gaussian-distributed latent embeddings. This reduces tunable loss hyperparameters from six to one compared to the only existing end-to-end alternative. With ~15M parameters trainable on a single GPU in a few hours, LeWM plans up to 48× faster than foundation-model-based world models while remaining competitive across diverse 2D and 3D control tasks. Beyond control, we show that LeWM's latent space encodes meaningful physical structure through probing of physical quantities. Surprise evaluation confirms that the model reliably detects physically implausible events.
@@ -68,8 +71,16 @@ should live on another disk. Dataset names in the Hydra configs resolve below
 Generate the corrected 64-frame maze dataset with:
 
 ```bash
-python gen_data_perfect.py --episodes 5000
+python generate_wm_maze.py --episodes 5000
 python validate_wm_maze.py
+```
+
+验证会默认导出 episode 0 的带 cue/动作标注 MP4，以及同名逐帧 cue CSV。
+可用 `--episode` 选择样本，或用 `--no-video` 只检查数据契约：
+
+```bash
+python validate_wm_maze.py --episode 12 --fps 4
+python validate_wm_maze.py --no-video
 ```
 
 The generator writes `$STABLEWM_HOME/datasets/wm_maze.h5`. Every episode
@@ -90,18 +101,31 @@ wandb:
     project: your_project
 ```
 
-To launch training:
+To launch working-memory maze training:
 
 ```bash
-python train.py data=pusht
 python train.py data=wm_maze
 ```
 
 Evaluate the memory and action probes on decision frames:
 
 ```bash
-python eval_wm_maze.py "$STABLEWM_HOME/checkpoints/lewm/weights_epoch_100.pt"
+python eval_wm_maze.py "$STABLEWM_HOME/checkpoints/lewm/weights_epoch_10.pt"
 ```
+
+用第 10 epoch 权重导出正式 validation 视频（同时生成同名 CSV）：
+
+```bash
+python eval_wm_maze.py \
+  "$STABLEWM_HOME/checkpoints/lewm/weights_epoch_10.pt" \
+  --video-only
+```
+
+训练验证默认每个 epoch 把首个验证样本导出到
+`$STABLEWM_HOME/validation/epoch_NNN_episode_00.mp4`，并生成同名 CSV；视频包含
+真实/预测 cue、cue 置信度、真实/预测动作和 decision 正误边框。可通过
+`validation_video.every_n_epochs` 调整频率，或设置
+`validation_video.enabled=false` 关闭。
 
 Maze checkpoints are saved below `$STABLEWM_HOME/checkpoints`.
 
