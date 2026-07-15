@@ -1,11 +1,20 @@
 dataset:
-  num_steps: 100     # ✨ 匹配新数据，门槛降到 60
+  num_steps: ${eval:'${num_preds} + ${history_size}'}
   frameskip: 1
-  name: /root/autodl-tmp/.stable_worldmodel/datasets/wm_maze_optimized.h5
+  name: wm_maze.h5
+  format: hdf5
   keys_to_load:
     - pixels
     - action
     - cue_color
+    - valid_mask
+    - transition_mask
+    - decision_mask
+    - memory_mask
   keys_to_cache:
     - action
     - cue_color
+    - valid_mask
+    - transition_mask
+    - decision_mask
+    - memory_mask

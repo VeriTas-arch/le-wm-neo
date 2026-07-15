@@ -4,10 +4,10 @@ defaults:
 - data: pusht
 - model: lewm
 embed_dim: 192
-history_size: 60
+history_size: 63
 img_size: 224
 loader:
-  batch_size: 64
+  batch_size: 8
   num_workers: ${num_workers}
   persistent_workers: true
   pin_memory: true
@@ -21,7 +21,7 @@ loss:
 num_preds: 1
 num_workers: 4
 optimizer:
-  lr: 1e-5
+  lr: 1e-4
   type: AdamW
   weight_decay: 1e-3
 output_model_name: lewm
@@ -33,4 +33,4 @@ trainer:
   devices: auto
   gradient_clip_val: 1.0
   max_epochs: 100
-  precision: bf16
+  precision: bf16-mixed

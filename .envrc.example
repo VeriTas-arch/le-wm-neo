@@ -1,0 +1,5 @@
+use conda wm
+export STABLEWM_HOME="$PWD/data"
+export SPT_CACHE_DIR="$STABLEWM_HOME/cache/stable-pretraining"
+export MPLCONFIGDIR="$STABLEWM_HOME/cache/matplotlib"
+mkdir -p "$SPT_CACHE_DIR" "$MPLCONFIGDIR"

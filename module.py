@@ -3,9 +3,11 @@ from torch import nn
 import torch.nn.functional as F
 from einops import rearrange
 
+
 def modulate(x, shift, scale):
     """AdaLN-zero modulation"""
     return x * (1 + scale) + shift
+
 
 class SIGReg(torch.nn.Module):
     """Sketch Isotropic Gaussian Regularizer (single-GPU!)"""
@@ -33,8 +35,9 @@ class SIGReg(torch.nn.Module):
         x_t = (proj @ A).unsqueeze(-1) * self.t
         err = (x_t.cos().mean(-3) - self.phi).square() + x_t.sin().mean(-3).square()
         statistic = (err @ self.weights) * proj.size(-2)
-        return statistic.mean() # average over projections and time
-    
+        return statistic.mean()  # average over projections and time
+
+
 class FeedForward(nn.Module):
     """FeedForward network used in Transformers"""
 
@@ -186,14 +189,9 @@ class Transformer(nn.Module):
             x = self.output_proj(x)
         return x
 
+
 class Embedder(nn.Module):
-    def __init__(
-        self,
-        input_dim=10,
-        smoothed_dim=10,
-        emb_dim=10,
-        mlp_scale=4,
-    ):
+    def __init__(self, input_dim=10, smoothed_dim=10, emb_dim=10, mlp_scale=4):
         super().__init__()
         self.patch_embed = nn.Conv1d(input_dim, smoothed_dim, kernel_size=1, stride=1)
         self.embed = nn.Sequential(
@@ -264,10 +262,7 @@ class ARPredictor(nn.Module):
 
         # GRU for long-range temporal memory across the sequence
         self.gru = nn.GRU(
-            input_size=input_dim,
-            hidden_size=input_dim,
-            num_layers=1,
-            batch_first=True,
+            input_size=input_dim, hidden_size=input_dim, num_layers=1, batch_first=True
         )
         self.gru_norm = nn.LayerNorm(input_dim)
 
@@ -283,49 +278,27 @@ class ARPredictor(nn.Module):
             block_class=ConditionalBlock,
         )
 
+    def memory_states(self, x):
+        """Encode the complete context into recurrent memory states."""
+        T = x.size(1)
+        if T > self.pos_embedding.size(1):
+            raise ValueError(
+                f"context length {T} exceeds predictor capacity "
+                f"{self.pos_embedding.size(1)}"
+            )
+        x = x + self.pos_embedding[:, :T]
+        x = self.dropout(x)
+        gru_out, _ = self.gru(x)
+        return self.gru_norm(x + gru_out)
+
     def forward(self, x, c):
         """
         x: (B, T, d)   — embedding sequence
         c: (B, T, act_dim) — condition (action embedding)
         """
-        T = x.size(1)
-        x = x + self.pos_embedding[:, :T]
-        x = self.dropout(x)
-
-        # GRU: accumulate temporal information across the sequence
-        gru_out, _ = self.gru(x)          # (B, T, D)
-        x = self.gru_norm(x + gru_out)    # residual + normalize
-
-        x = self.transformer(x, c)
-        return x
-
-# Windowed ARPredictor (Transformer only on last 5 frames)
-_arp_forward_saved = ARPredictor.forward
-def _arp_forward_fast(self, x, c):
-    T = x.size(1)
-    x = x + self.pos_embedding[:, :T]
-    x = self.dropout(x)
-    gru_out, _ = self.gru(x)
-    x = self.gru_norm(x + gru_out)
-    W = 5
-    if T > W: x, c = x[:, -W:], c[:, -W:]
-    x = self.transformer(x, c)
-    return x
-
-def _arp_forward_full(self, x, c):
-    T = x.size(1)
-    x = x + self.pos_embedding[:, :T]
-    x = self.dropout(x)
-    gru_out, _ = self.gru(x)
-    x_full = self.gru_norm(x + gru_out)
-    W = 5
-    if T > W:
-        x, c = x_full[:, -W:], c[:, -W:]
-    else:
-        x, c = x_full, c[:, -T:]  # ✨ 核心修复：当 T <= W 时，强制让 c 和 x 长度一致！
-    x = self.transformer(x, c)
-    x.return_gru = x_full
-    return x
-
-
-ARPredictor.forward = _arp_forward_full
+        if c.size(1) != x.size(1):
+            raise ValueError(
+                f"condition length {c.size(1)} does not match context "
+                f"length {x.size(1)}"
+            )
+        return self.transformer(self.memory_states(x), c)

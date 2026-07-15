@@ -1,6 +1,7 @@
 
 # LeWorldModel
-### Stable End-to-End Joint-Embedding Predictive Architecture from Pixels
+
+## Stable End-to-End Joint-Embedding Predictive Architecture from Pixels
 
 [Lucas Maes*](https://x.com/lucasmaes_), [Quentin Le Lidec*](https://quentinll.github.io/), [Damien Scieur](https://scholar.google.com/citations?user=hNscQzgAAAAJ&hl=fr), [Yann LeCun](https://yann.lecun.com/) and [Randall Balestriero](https://randallbalestriero.github.io/)
 
@@ -13,11 +14,12 @@
 <br>
 
 <p align="center">
-  <img src="assets/lewm.gif" width="80%">
+  <img src="assets/lewm.gif" width="80%" alt="lewm">
 </p>
 
 If you find this code useful, please reference it in your paper:
-```
+
+```bibtex
 @article{maes_lelidec2026lewm,
   title={LeWorldModel: Stable End-to-End Joint-Embedding Predictive Architecture from Pixels},
   author={Maes, Lucas and Le Lidec, Quentin and Scieur, Damien and LeCun, Yann and Balestriero, Randall},
@@ -27,13 +29,15 @@ If you find this code useful, please reference it in your paper:
 ```
 
 ## Using the code
+
 This codebase builds on [stable-worldmodel](https://github.com/galilai-group/stable-worldmodel) for environment management, planning, and evaluation, and [stable-pretraining](https://github.com/galilai-group/stable-pretraining) for training. Together they reduce this repository to its core contribution: the model architecture and training objective.
 
 **Installation:**
+
 ```bash
 uv venv --python=3.10
 source .venv/bin/activate
-uv pip install stable-worldmodel[train,env]
+uv pip install stable-worldmodel[train,env] memory-maze
 ```
 
 ## Data
@@ -44,18 +48,41 @@ Datasets use the HDF5 format for fast loading. Download the data from [HuggingFa
 tar --zstd -xvf archive.tar.zst
 ```
 
-Place the extracted `.h5` files under `$STABLEWM_HOME` (defaults to `~/.stable-wm/`). You can override this path:
+Place datasets under `$STABLEWM_HOME/datasets`. This repository uses direnv so
+the environment and storage location follow the checkout instead of a machine-
+specific absolute path:
+
 ```bash
-export STABLEWM_HOME=/path/to/your/storage
+cp .envrc.example .envrc  # skip if .envrc already exists
+direnv allow
 ```
 
-Dataset names are specified without the `.h5` extension. For example, `config/train/data/pusht.yaml` references `pusht_expert_train`, which resolves to `$STABLEWM_HOME/pusht_expert_train.h5`.
+The supplied `.envrc` selects the `wm` Conda environment, sets
+`STABLEWM_HOME=$PWD/data`, and points `SPT_CACHE_DIR` and `MPLCONFIGDIR` below
+that storage root. Edit it before `direnv allow` if datasets and training runs
+should live on another disk. Dataset names in the Hydra configs resolve below
+`$STABLEWM_HOME/datasets`.
+
+### Working-memory maze
+
+Generate the corrected 64-frame maze dataset with:
+
+```bash
+python gen_data_perfect.py --episodes 5000
+python validate_wm_maze.py
+```
+
+The generator writes `$STABLEWM_HOME/datasets/wm_maze.h5`. Every episode
+contains three balanced color cues, a blank delay, three locally ambiguous
+decision points, and explicit masks for valid frames, transitions, memory
+supervision, and decisions.
 
 ## Training
 
 `jepa.py` contains the PyTorch implementation of LeWM. Training is configured via [Hydra](https://hydra.cc/) config files under `config/train/`.
 
 Before training, set your WandB `entity` and `project` in `config/train/lewm.yaml`:
+
 ```yaml
 wandb:
   config:
@@ -64,11 +91,19 @@ wandb:
 ```
 
 To launch training:
+
 ```bash
 python train.py data=pusht
+python train.py data=wm_maze
 ```
 
-Checkpoints are saved to `$STABLEWM_HOME` upon completion.
+Evaluate the memory and action probes on decision frames:
+
+```bash
+python eval_wm_maze.py "$STABLEWM_HOME/checkpoints/lewm/weights_epoch_100.pt"
+```
+
+Maze checkpoints are saved below `$STABLEWM_HOME/checkpoints`.
 
 For baseline scripts, see the stable-worldmodel [scripts](https://github.com/galilai-group/stable-worldmodel/tree/main/scripts/train) folder.
 
@@ -116,6 +151,7 @@ is available on [Google Drive](https://drive.google.com/drive/folders/1r31os0d4-
 ### From the Drive archive
 
 Each tar archive contains two files per checkpoint:
+
 - `<name>_object.ckpt` — a serialized Python object for convenient loading; this is what `eval.py` and the `stable_worldmodel` API use
 - `<name>_weight.ckpt` — a weights-only checkpoint (`state_dict`) for cases where you want to load weights into your own model instance
 
@@ -129,6 +165,7 @@ cost = swm.policy.AutoCostModel('pusht/lewm')
 ```
 
 `AutoCostModel` accepts:
+
 - `run_name` — checkpoint path **relative to `$STABLEWM_HOME`**, without the `_object.ckpt` suffix
 - `cache_dir` — optional override for the checkpoint root (defaults to `$STABLEWM_HOME`)
 
@@ -181,4 +218,5 @@ PY
 After conversion, load via `swm.policy.AutoCostModel('pusht/lewm')` as usual.
 
 ## Contact & Contributions
+
 Feel free to open [issues](https://github.com/lucas-maes/le-wm/issues)! For questions or collaborations, please contact `lucas.maes@mila.quebec`
