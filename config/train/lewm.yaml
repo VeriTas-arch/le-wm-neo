@@ -25,6 +25,7 @@ optimizer:
   type: AdamW
   weight_decay: 1e-3
 output_model_name: lewm
+checkpoint_run_name: ${data.task_name}
 seed: 3072
 stop_after_epoch: 10
 subdir: ${hydra:job.id}
@@ -34,6 +35,7 @@ validation_video:
   every_n_epochs: 1
   fps: 4.0
   sample_index: 0
+  padding: 128
 trainer:
   accelerator: gpu
   devices: auto

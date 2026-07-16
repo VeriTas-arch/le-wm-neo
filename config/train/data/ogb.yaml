@@ -1,3 +1,4 @@
+task_name: ogb
 dataset:
   name: ogbench/cube_single_expert.h5
   num_steps: ${eval:'${num_preds} + ${history_size}'}

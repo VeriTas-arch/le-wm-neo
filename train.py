@@ -142,8 +142,11 @@ def run(cfg):
     ##########################
 
     run_id = cfg.get("subdir") or ""
+    checkpoint_run_name = cfg.checkpoint_run_name
     run_dir = Path(
-        swm.data.utils.get_cache_dir(Path(cache_dir), sub_folder="checkpoints"), run_id
+        swm.data.utils.get_cache_dir(Path(cache_dir), sub_folder="checkpoints"),
+        checkpoint_run_name,
+        run_id,
     )
 
     logger = None
@@ -156,7 +159,7 @@ def run(cfg):
         OmegaConf.save(cfg, f)
 
     object_dump_callback = SaveCkptCallback(
-        run_name=cfg.output_model_name, cfg=cfg.model, epoch_interval=1
+        run_name=checkpoint_run_name, cfg=cfg.model, epoch_interval=1
     )
     callbacks = [object_dump_callback]
     if cfg.stop_after_epoch is not None:
@@ -167,6 +170,7 @@ def run(cfg):
                 every_n_epochs=cfg.validation_video.every_n_epochs,
                 fps=cfg.validation_video.fps,
                 sample_index=cfg.validation_video.sample_index,
+                padding=cfg.validation_video.padding,
             )
         )
 

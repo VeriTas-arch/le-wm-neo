@@ -110,15 +110,16 @@ python train.py data=wm_maze
 Evaluate the memory and action probes on decision frames:
 
 ```bash
-python eval_wm_maze.py "$STABLEWM_HOME/checkpoints/lewm/weights_epoch_10.pt"
+python eval_wm_maze.py "$STABLEWM_HOME/checkpoints/wm_maze/weights_epoch_10.pt"
 ```
 
 用第 10 epoch 权重导出正式 validation 视频（同时生成同名 CSV）：
 
 ```bash
 python eval_wm_maze.py \
-  "$STABLEWM_HOME/checkpoints/lewm/weights_epoch_10.pt" \
-  --video-only
+  "$STABLEWM_HOME/checkpoints/wm_maze/weights_epoch_10.pt" \
+  --video-only \
+  --padding 24
 ```
 
 训练验证默认每个 epoch 把首个验证样本导出到
@@ -127,7 +128,14 @@ python eval_wm_maze.py \
 `validation_video.every_n_epochs` 调整频率，或设置
 `validation_video.enabled=false` 关闭。
 
-Maze checkpoints are saved below `$STABLEWM_HOME/checkpoints`.
+所有导出器最终写入 H.264/yuv420p MP4，并启用 fast-start，因此可直接在
+VS Code/Chromium 中预览。导出需要系统 `PATH` 中存在 FFmpeg。
+视频默认在内容四周保留 24 px 白色外边距，可通过
+`validation_video.padding` 调整；数据检查工具使用 `--padding`。
+
+Maze checkpoints are saved below `$STABLEWM_HOME/checkpoints/wm_maze`. Other
+training datasets use their own task-named directory, so checkpoints from
+different tasks cannot overwrite one another.
 
 For baseline scripts, see the stable-worldmodel [scripts](https://github.com/galilai-group/stable-worldmodel/tree/main/scripts/train) folder.
 

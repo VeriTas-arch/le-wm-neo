@@ -1,3 +1,4 @@
+task_name: wm_maze
 dataset:
   num_steps: ${eval:'${num_preds} + ${history_size}'}
   frameskip: 1

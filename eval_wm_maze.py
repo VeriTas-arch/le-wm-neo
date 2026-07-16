@@ -83,7 +83,7 @@ def evaluate(model, cfg, dataset, device, max_episodes):
 
 @torch.inference_mode()
 def export_validation_video(
-    model, cfg, dataset, checkpoint, device, sample_index, fps, output
+    model, cfg, dataset, checkpoint, device, sample_index, fps, padding, output
 ):
     """Export one deterministic sample from the same validation split as train.py."""
     generator = torch.Generator().manual_seed(cfg.seed)
@@ -118,7 +118,11 @@ def export_validation_video(
         output = root / (
             f"formal_epoch_{epoch:03d}_validation_{sample_index:04d}.mp4"
         )
-    exporter = WMMazeValidationVideo(fps=fps, sample_index=0)
+    exporter = WMMazeValidationVideo(
+        fps=fps,
+        sample_index=0,
+        padding=padding,
+    )
     exporter._write(epoch, batch, outputs, video_path=output)
 
 
@@ -136,6 +140,12 @@ def main():
     parser.add_argument("--video-index", type=int, default=0)
     parser.add_argument("--video-output", type=Path)
     parser.add_argument("--fps", type=float, default=4.0)
+    parser.add_argument(
+        "--padding",
+        type=int,
+        default=128,
+        help="outer canvas padding in pixels (default: 128)",
+    )
     parser.add_argument(
         "--device", default="cuda" if torch.cuda.is_available() else "cpu"
     )
@@ -159,6 +169,7 @@ def main():
             args.device,
             args.video_index,
             args.fps,
+            args.padding,
             args.video_output,
         )
 

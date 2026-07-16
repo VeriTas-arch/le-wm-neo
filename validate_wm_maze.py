@@ -10,6 +10,7 @@ import h5py
 import numpy as np
 
 from generate_wm_maze import default_output_path
+from video_export import H264VideoWriter, add_canvas_padding
 from wm_maze_env import COLOR_TO_TURN
 
 
@@ -63,7 +64,7 @@ def _episode_data(handle, episode):
     }
 
 
-def export_episode(path, episode, video_path, fps):
+def export_episode(path, episode, video_path, fps, padding=24):
     with h5py.File(path, "r") as handle:
         data = _episode_data(handle, episode)
 
@@ -85,17 +86,12 @@ def export_episode(path, episode, video_path, fps):
     csv_path = video_path.with_suffix(".csv")
     frame_height, frame_width = data["pixels"].shape[1:3]
     panel_width = 360
-    writer = cv2.VideoWriter(
-        str(video_path),
-        cv2.VideoWriter_fourcc(*"mp4v"),
-        fps,
-        (frame_width + panel_width, frame_height),
-    )
-    if not writer.isOpened():
-        raise RuntimeError(f"cannot open video writer for {video_path}")
-
+    canvas_width = frame_width + panel_width + 2 * padding
+    canvas_height = frame_height + 2 * padding
     rows = []
-    try:
+    with H264VideoWriter(
+        video_path, fps, (canvas_width, canvas_height)
+    ) as writer:
         for step in np.flatnonzero(valid):
             cue_name = CUE_NAMES[cue[step]]
             action_name = ACTION_NAMES[action[step]]
@@ -141,7 +137,7 @@ def export_episode(path, episode, video_path, fps):
                     (0, 215, 255),
                     thickness=4,
                 )
-            writer.write(canvas)
+            writer.write(add_canvas_padding(canvas, padding))
             rows.append(
                 {
                     "episode": episode,
@@ -156,9 +152,6 @@ def export_episode(path, episode, video_path, fps):
                     "transition": int(transition[step]),
                 }
             )
-    finally:
-        writer.release()
-
     with open(csv_path, "w", newline="", encoding="utf-8") as handle:
         csv_writer = csv.DictWriter(handle, fieldnames=rows[0].keys())
         csv_writer.writeheader()
@@ -240,6 +233,12 @@ def main():
     parser.add_argument("--episode", type=int, default=0)
     parser.add_argument("--fps", type=float, default=4.0)
     parser.add_argument(
+        "--padding",
+        type=int,
+        default=24,
+        help="outer canvas padding in pixels (default: 24)",
+    )
+    parser.add_argument(
         "--video",
         type=Path,
         default=None,
@@ -255,7 +254,7 @@ def main():
             os.environ.get("STABLEWM_HOME", Path(args.path).resolve().parent.parent)
         )
         video = args.video or root / "validation" / f"episode_{args.episode:04d}.mp4"
-        export_episode(args.path, args.episode, video, args.fps)
+        export_episode(args.path, args.episode, video, args.fps, args.padding)
 
 
 if __name__ == "__main__":

@@ -9,14 +9,11 @@ import numpy as np
 import torch
 from lightning.pytorch import Callback
 
+from video_export import H264VideoWriter, add_canvas_padding
 
 CUE_NAMES = ("red", "blue", "green")
 ACTION_NAMES = ("forward", "left", "right")
-CUE_BGR = {
-    "red": (50, 50, 220),
-    "blue": (240, 100, 50),
-    "green": (50, 200, 50),
-}
+CUE_BGR = {"red": (50, 50, 220), "blue": (240, 100, 50), "green": (50, 200, 50)}
 IMAGENET_MEAN = torch.tensor((0.485, 0.456, 0.406)).view(1, 3, 1, 1)
 IMAGENET_STD = torch.tensor((0.229, 0.224, 0.225)).view(1, 3, 1, 1)
 
@@ -39,25 +36,23 @@ def _to_rgb_uint8(normalized_pixels):
     pixels = normalized_pixels.detach().float().cpu()
     pixels = pixels * IMAGENET_STD + IMAGENET_MEAN
     return (
-        pixels.clamp(0, 1)
-        .mul(255)
-        .round()
-        .to(torch.uint8)
-        .permute(0, 2, 3, 1)
-        .numpy()
+        pixels.clamp(0, 1).mul(255).round().to(torch.uint8).permute(0, 2, 3, 1).numpy()
     )
 
 
 class WMMazeValidationVideo(Callback):
     """Write one annotated MP4 and prediction CSV per validation epoch."""
 
-    def __init__(self, every_n_epochs=1, fps=4.0, sample_index=0):
+    def __init__(self, every_n_epochs=1, fps=4.0, sample_index=0, padding=24):
         super().__init__()
         if every_n_epochs < 1:
             raise ValueError("every_n_epochs must be at least 1")
+        if padding < 0:
+            raise ValueError("padding cannot be negative")
         self.every_n_epochs = every_n_epochs
         self.fps = fps
         self.sample_index = sample_index
+        self.padding = padding
         self._written_epoch = None
 
     def on_validation_epoch_start(self, trainer, pl_module):
@@ -96,9 +91,7 @@ class WMMazeValidationVideo(Callback):
         transition = (
             batch["transition_mask"][index, :length].detach().cpu().bool().numpy()
         )
-        decision = (
-            batch["decision_mask"][index, :length].detach().cpu().bool().numpy()
-        )
+        decision = batch["decision_mask"][index, :length].detach().cpu().bool().numpy()
         memory = batch["memory_mask"][index, :length].detach().cpu().bool().numpy()
         cue_prob = cue_logits.softmax(-1)
         act_prob = act_logits.softmax(-1)
@@ -116,29 +109,25 @@ class WMMazeValidationVideo(Callback):
         csv_path = video_path.with_suffix(".csv")
         height, width = pixels.shape[1:3]
         panel_width = 430
-        writer = cv2.VideoWriter(
-            str(video_path),
-            cv2.VideoWriter_fourcc(*"mp4v"),
-            self.fps,
-            (width + panel_width, height),
-        )
-        if not writer.isOpened():
-            raise RuntimeError(f"cannot open video writer for {video_path}")
-
+        canvas_width = width + panel_width + 2 * self.padding
+        canvas_height = height + 2 * self.padding
         rows = []
-        try:
+        with H264VideoWriter(
+            video_path, self.fps, (canvas_width, canvas_height)
+        ) as writer:
             for step in np.flatnonzero(valid):
                 true_cue_name = CUE_NAMES[cue_true[step]]
                 pred_cue_name = CUE_NAMES[cue_pred[step]]
                 true_action_name = ACTION_NAMES[action_true[step]]
                 pred_action_name = ACTION_NAMES[action_pred[step]]
                 phase = _phase_name(
-                    pixels[step], valid[step], transition[step],
-                    decision[step], memory[step]
+                    pixels[step],
+                    valid[step],
+                    transition[step],
+                    decision[step],
+                    memory[step],
                 )
-                canvas = np.full(
-                    (height, width + panel_width, 3), 28, dtype=np.uint8
-                )
+                canvas = np.full((height, width + panel_width, 3), 28, dtype=np.uint8)
                 canvas[:, :width] = cv2.cvtColor(pixels[step], cv2.COLOR_RGB2BGR)
                 x = width + 18
                 lines = (
@@ -152,22 +141,39 @@ class WMMazeValidationVideo(Callback):
                 )
                 for line_index, line in enumerate(lines):
                     cv2.putText(
-                        canvas, line, (x, 27 + line_index * 28),
-                        cv2.FONT_HERSHEY_SIMPLEX, 0.58, (235, 235, 235), 1,
+                        canvas,
+                        line,
+                        (x, 27 + line_index * 28),
+                        cv2.FONT_HERSHEY_SIMPLEX,
+                        0.58,
+                        (235, 235, 235),
+                        1,
                         cv2.LINE_AA,
                     )
                 cv2.rectangle(
-                    canvas, (width + panel_width - 55, 64),
-                    (width + panel_width - 20, 99), CUE_BGR[true_cue_name], -1
+                    canvas,
+                    (width + panel_width - 55, 64),
+                    (width + panel_width - 20, 99),
+                    CUE_BGR[true_cue_name],
+                    -1,
                 )
                 cv2.rectangle(
-                    canvas, (width + panel_width - 55, 105),
-                    (width + panel_width - 20, 140), CUE_BGR[pred_cue_name], -1
+                    canvas,
+                    (width + panel_width - 55, 105),
+                    (width + panel_width - 20, 140),
+                    CUE_BGR[pred_cue_name],
+                    -1,
                 )
                 if decision[step]:
-                    border = (0, 200, 0) if action_pred[step] == action_true[step] else (0, 0, 230)
+                    border = (
+                        (0, 200, 0)
+                        if action_pred[step] == action_true[step]
+                        else (0, 0, 230)
+                    )
                     cv2.rectangle(canvas, (2, 2), (width - 3, height - 3), border, 4)
-                writer.write(canvas)
+                writer.write(
+                    add_canvas_padding(canvas, self.padding, color=(28, 28, 28))
+                )
                 rows.append(
                     {
                         "epoch": epoch,
@@ -184,17 +190,27 @@ class WMMazeValidationVideo(Callback):
                         "decision": int(decision[step]),
                     }
                 )
-        finally:
-            writer.release()
-
         fieldnames = (
-            "epoch", "step", "phase", "cue_true", "cue_pred",
-            "cue_confidence", "cue_correct", "action_true", "action_pred",
-            "action_confidence", "action_correct", "decision",
+            "epoch",
+            "step",
+            "phase",
+            "cue_true",
+            "cue_pred",
+            "cue_confidence",
+            "cue_correct",
+            "action_true",
+            "action_pred",
+            "action_confidence",
+            "action_correct",
+            "decision",
         )
         with open(csv_path, "w", newline="", encoding="utf-8") as handle:
             csv_writer = csv.DictWriter(handle, fieldnames=fieldnames)
             csv_writer.writeheader()
             csv_writer.writerows(rows)
         print(f"Validation video: {video_path}")
+        print(
+            f"Validation video canvas: {canvas_width}x{canvas_height} "
+            f"(padding={self.padding}px)"
+        )
         print(f"Validation cue predictions: {csv_path}")

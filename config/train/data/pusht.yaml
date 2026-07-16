@@ -1,3 +1,4 @@
+task_name: pusht
 dataset:
   num_steps: ${eval:'${num_preds} + ${history_size}'}
   frameskip: 5

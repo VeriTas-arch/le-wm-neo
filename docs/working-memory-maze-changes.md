@@ -242,7 +242,7 @@ direnv allow
 ```text
 $STABLEWM_HOME/
 ├── datasets/wm_maze.h5
-├── checkpoints/lewm/weights_epoch_*.pt
+├── checkpoints/wm_maze/weights_epoch_*.pt
 └── cache/stable-pretraining/
 ```
 
@@ -294,6 +294,7 @@ validation_video:
   every_n_epochs: 1
   fps: 4.0
   sample_index: 0
+  padding: 24
 ```
 
 ## 11. 新增正式工具
@@ -327,7 +328,7 @@ python validate_wm_maze.py --no-video
 
 ```bash
 python eval_wm_maze.py \
-  "$STABLEWM_HOME/checkpoints/lewm/weights_epoch_10.pt"
+  "$STABLEWM_HOME/checkpoints/wm_maze/weights_epoch_10.pt"
 ```
 
 输出：
@@ -342,8 +343,9 @@ python eval_wm_maze.py \
 
 ```bash
 python eval_wm_maze.py \
-  "$STABLEWM_HOME/checkpoints/lewm/weights_epoch_10.pt" \
-  --video-only
+  "$STABLEWM_HOME/checkpoints/wm_maze/weights_epoch_10.pt" \
+  --video-only \
+  --padding 24
 ```
 
 该命令使用与训练相同的 `seed` 和 train/validation 比例重建 validation split，
@@ -354,8 +356,17 @@ $STABLEWM_HOME/validation/formal_epoch_010_validation_0000.mp4
 $STABLEWM_HOME/validation/formal_epoch_010_validation_0000.csv
 ```
 
-可用 `--video-index` 选择其他验证样本、`--fps` 调整帧率，或用
-`--video-output` 指定 MP4 路径。CSV 路径始终与 MP4 同名。
+可用 `--video-index` 选择其他验证样本、`--fps` 调整帧率、
+`--padding` 调整画布外边距，或用 `--video-output` 指定 MP4 路径。
+CSV 路径始终与 MP4 同名。
+
+训练回调和数据验证器共用 `H264VideoWriter`：OpenCV 只负责写临时帧流，
+随后由 FFmpeg 转码为 H.264、`yuv420p` 并设置 `faststart`，最后原子替换目标
+MP4。这样生成的视频可以直接在 VS Code/Chromium 中预览。若 FFmpeg 缺失或
+编码失败，导出会明确失败，不会留下伪装成可用结果的 MPEG-4 Part 2 文件。
+默认还会在内容四周增加 24 px 白色 padding，从而扩大画布而不拉伸迷宫或
+文字。训练视频通过 `validation_video.padding` 配置，数据验证视频通过
+`--padding` 调整。
 
 ## 12. 仓库清理
 
@@ -429,5 +440,5 @@ python train.py data=wm_maze
 
 # 4. 评估某个导出权重
 python eval_wm_maze.py \
-  "$STABLEWM_HOME/checkpoints/lewm/weights_epoch_10.pt"
+  "$STABLEWM_HOME/checkpoints/wm_maze/weights_epoch_10.pt"
 ```
