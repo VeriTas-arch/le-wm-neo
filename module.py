@@ -114,25 +114,8 @@ class ConditionalBlock(nn.Module):
         return x
 
 
-class Block(nn.Module):
-    """Standard Transformer block"""
-
-    def __init__(self, dim, heads, dim_head, mlp_dim, dropout=0.0):
-        super().__init__()
-
-        self.attn = Attention(dim, heads=heads, dim_head=dim_head, dropout=dropout)
-        self.mlp = FeedForward(dim, mlp_dim, dropout=dropout)
-        self.norm1 = nn.LayerNorm(dim, elementwise_affine=False, eps=1e-6)
-        self.norm2 = nn.LayerNorm(dim, elementwise_affine=False, eps=1e-6)
-
-    def forward(self, x):
-        x = x + self.attn(self.norm1(x))
-        x = x + self.mlp(self.norm2(x))
-        return x
-
-
 class Transformer(nn.Module):
-    """Standard Transformer with support for AdaLN-zero blocks"""
+    """Action-conditioned Transformer built from AdaLN-zero blocks."""
 
     def __init__(
         self,
@@ -144,7 +127,6 @@ class Transformer(nn.Module):
         dim_head,
         mlp_dim,
         dropout=0.0,
-        block_class=Block,
     ):
         super().__init__()
         self.norm = nn.LayerNorm(hidden_dim)
@@ -170,73 +152,17 @@ class Transformer(nn.Module):
 
         for _ in range(depth):
             self.layers.append(
-                block_class(hidden_dim, heads, dim_head, mlp_dim, dropout)
+                ConditionalBlock(hidden_dim, heads, dim_head, mlp_dim, dropout)
             )
 
-    def forward(self, x, c=None):
-
-        if hasattr(self, "input_proj"):
-            x = self.input_proj(x)
-
-        if c is not None and hasattr(self, "cond_proj"):
-            c = self.cond_proj(c)
+    def forward(self, x, c):
+        x = self.input_proj(x)
+        c = self.cond_proj(c)
 
         for block in self.layers:
-            x = block(x) if isinstance(block, Block) else block(x, c)
+            x = block(x, c)
         x = self.norm(x)
-
-        if hasattr(self, "output_proj"):
-            x = self.output_proj(x)
-        return x
-
-
-class Embedder(nn.Module):
-    def __init__(self, input_dim=10, smoothed_dim=10, emb_dim=10, mlp_scale=4):
-        super().__init__()
-        self.patch_embed = nn.Conv1d(input_dim, smoothed_dim, kernel_size=1, stride=1)
-        self.embed = nn.Sequential(
-            nn.Linear(smoothed_dim, mlp_scale * emb_dim),
-            nn.SiLU(),
-            nn.Linear(mlp_scale * emb_dim, emb_dim),
-        )
-
-    def forward(self, x):
-        """
-        x: (B, T, D)
-        """
-        x = x.float()
-        x = x.permute(0, 2, 1)
-        x = self.patch_embed(x)
-        x = x.permute(0, 2, 1)
-        x = self.embed(x)
-        return x
-
-
-class MLP(nn.Module):
-    """Simple MLP with optional normalization and activation"""
-
-    def __init__(
-        self,
-        input_dim,
-        hidden_dim,
-        output_dim=None,
-        norm_fn=nn.LayerNorm,
-        act_fn=nn.GELU,
-    ):
-        super().__init__()
-        norm_fn = norm_fn(hidden_dim) if norm_fn is not None else nn.Identity()
-        self.net = nn.Sequential(
-            nn.Linear(input_dim, hidden_dim),
-            norm_fn,
-            act_fn(),
-            nn.Linear(hidden_dim, output_dim or input_dim),
-        )
-
-    def forward(self, x):
-        """
-        x: (B*T, D)
-        """
-        return self.net(x)
+        return self.output_proj(x)
 
 
 class ARPredictor(nn.Module):
@@ -275,7 +201,6 @@ class ARPredictor(nn.Module):
             dim_head,
             mlp_dim,
             dropout,
-            block_class=ConditionalBlock,
         )
 
     def memory_states(self, x):

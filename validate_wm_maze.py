@@ -9,10 +9,8 @@ import cv2
 import h5py
 import numpy as np
 
-from generate_wm_maze import default_output_path
-from video_export import H264VideoWriter, add_canvas_padding
-from wm_maze_env import COLOR_TO_TURN
-
+from generate_wm_maze import COLOR_TO_TURN, default_output_path
+from wm_maze_video import H264VideoWriter, add_canvas_padding
 
 REQUIRED_KEYS = {
     "pixels",
@@ -28,11 +26,7 @@ REQUIRED_KEYS = {
 
 CUE_NAMES = ("red", "blue", "green")
 ACTION_NAMES = ("forward", "left", "right")
-CUE_BGR = {
-    "red": (50, 50, 220),
-    "blue": (240, 100, 50),
-    "green": (50, 200, 50),
-}
+CUE_BGR = {"red": (50, 50, 220), "blue": (240, 100, 50), "green": (50, 200, 50)}
 
 
 def _phase_name(frame, valid, transition, decision, memory):
@@ -89,9 +83,7 @@ def export_episode(path, episode, video_path, fps, padding=24):
     canvas_width = frame_width + panel_width + 2 * padding
     canvas_height = frame_height + 2 * padding
     rows = []
-    with H264VideoWriter(
-        video_path, fps, (canvas_width, canvas_height)
-    ) as writer:
+    with H264VideoWriter(video_path, fps, (canvas_width, canvas_height)) as writer:
         for step in np.flatnonzero(valid):
             cue_name = CUE_NAMES[cue[step]]
             action_name = ACTION_NAMES[action[step]]
@@ -199,16 +191,15 @@ def validate(path):
             if not np.all(transition <= valid) or not np.all(memory <= valid):
                 raise ValueError(f"episode {episode} has a mask outside valid frames")
             if transition.sum() + 1 != valid.sum():
-                raise ValueError(f"episode {episode} has an invalid terminal transition")
+                raise ValueError(
+                    f"episode {episode} has an invalid terminal transition"
+                )
 
             decision_actions = action[decision]
             if sorted(decision_actions.tolist()) != [0, 1, 2]:
                 raise ValueError(f"episode {episode} decisions are not balanced")
             expected_actions = np.array(
-                [
-                    COLOR_TO_TURN[color]
-                    for color in ("red", "blue", "green")
-                ]
+                [COLOR_TO_TURN[color] for color in ("red", "blue", "green")]
             )
             cue_to_action = expected_actions[cue[decision]]
             if not np.array_equal(cue_to_action, decision_actions):

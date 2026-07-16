@@ -3,6 +3,8 @@ defaults:
 - launcher: local
 - data: pusht
 - model: lewm
+- override hydra/job_logging: disabled
+- override hydra/hydra_logging: disabled
 embed_dim: 192
 history_size: 63
 img_size: 224
@@ -36,6 +38,12 @@ validation_video:
   fps: 4.0
   sample_index: 0
   padding: 128
+hydra:
+  run:
+    dir: .
+  output_subdir: null
+  job:
+    chdir: false
 trainer:
   accelerator: gpu
   devices: auto

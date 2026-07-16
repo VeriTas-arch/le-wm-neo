@@ -1,26 +1,22 @@
-
 # LeWorldModel
 
 ## Stable End-to-End Joint-Embedding Predictive Architecture from Pixels
-
-当前工作记忆迷宫分支相对基线代码的完整修改记录见
-[docs/working-memory-maze-changes.md](docs/working-memory-maze-changes.md)。
 
 [Lucas Maes*](https://x.com/lucasmaes_), [Quentin Le Lidec*](https://quentinll.github.io/), [Damien Scieur](https://scholar.google.com/citations?user=hNscQzgAAAAJ&hl=fr), [Yann LeCun](https://yann.lecun.com/) and [Randall Balestriero](https://randallbalestriero.github.io/)
 
 **Abstract:** Joint Embedding Predictive Architectures (JEPAs) offer a compelling framework for learning world models in compact latent spaces, yet existing methods remain fragile, relying on complex multi-term losses, exponential moving averages, pretrained encoders, or auxiliary supervision to avoid representation collapse. In this work, we introduce LeWorldModel (LeWM), the first JEPA that trains stably end-to-end from raw pixels using only two loss terms: a next-embedding prediction loss and a regularizer enforcing Gaussian-distributed latent embeddings. This reduces tunable loss hyperparameters from six to one compared to the only existing end-to-end alternative. With ~15M parameters trainable on a single GPU in a few hours, LeWM plans up to 48× faster than foundation-model-based world models while remaining competitive across diverse 2D and 3D control tasks. Beyond control, we show that LeWM's latent space encodes meaningful physical structure through probing of physical quantities. Surprise evaluation confirms that the model reliably detects physically implausible events.
 
 <p align="center">
-   <b>[ <a href="https://arxiv.org/pdf/2603.19312v1">Paper</a> | <a href="https://huggingface.co/collections/quentinll/lewm">Checkpoints &amp; Data</a> | <a href="https://le-wm.github.io/">Website</a> ]</b>
+  <b>[ <a href="https://arxiv.org/pdf/2603.19312v1">Paper</a> | <a href="https://huggingface.co/collections/quentinll/lewm">Checkpoints &amp; Data</a> | <a href="https://le-wm.github.io/">Website</a> ]</b>
 </p>
 
 <br>
 
 <p align="center">
-  <img src="assets/lewm.gif" width="80%" alt="lewm">
+  <img src="assets/lewm.gif" width="80%" alt="LeWorldModel">
 </p>
 
-If you find this code useful, please reference it in your paper:
+If you find this code useful, please cite:
 
 ```bibtex
 @article{maes_lelidec2026lewm,
@@ -33,9 +29,12 @@ If you find this code useful, please reference it in your paper:
 
 ## Using the code
 
-This codebase builds on [stable-worldmodel](https://github.com/galilai-group/stable-worldmodel) for environment management, planning, and evaluation, and [stable-pretraining](https://github.com/galilai-group/stable-pretraining) for training. Together they reduce this repository to its core contribution: the model architecture and training objective.
+This repository builds on [stable-worldmodel](https://github.com/galilai-group/stable-worldmodel) for environment management, planning, and evaluation, and [stable-pretraining](https://github.com/galilai-group/stable-pretraining) for training.
 
-**Installation:**
+### Installation
+
+Install the upstream training and environment dependencies in an existing
+environment, or follow the original lightweight setup:
 
 ```bash
 uv venv --python=3.10
@@ -43,212 +42,148 @@ source .venv/bin/activate
 uv pip install stable-worldmodel[train,env] memory-maze
 ```
 
-## Data
-
-Datasets use the HDF5 format for fast loading. Download the data from [HuggingFace](https://huggingface.co/collections/quentinll/lewm) and decompress with:
-
-```bash
-tar --zstd -xvf archive.tar.zst
-```
-
-Place datasets under `$STABLEWM_HOME/datasets`. This repository uses direnv so
-the environment and storage location follow the checkout instead of a machine-
-specific absolute path:
+The current checkout uses a Conda environment named `wm` and
+[direnv](https://direnv.net/) to keep datasets, checkpoints, logs, and caches
+below the repository:
 
 ```bash
-cp .envrc.example .envrc  # skip if .envrc already exists
+cp .envrc.example .envrc  # skip when .envrc already exists
 direnv allow
 ```
 
-The supplied `.envrc` selects the `wm` Conda environment, sets
-`STABLEWM_HOME=$PWD/data`, and points `SPT_CACHE_DIR` and `MPLCONFIGDIR` below
-that storage root. Edit it before `direnv allow` if datasets and training runs
-should live on another disk. Dataset names in the Hydra configs resolve below
-`$STABLEWM_HOME/datasets`.
+By default, `.envrc` sets:
+
+```bash
+STABLEWM_HOME=$PWD/data
+SPT_CACHE_DIR=$STABLEWM_HOME/cache/stable-pretraining
+MPLCONFIGDIR=$STABLEWM_HOME/cache/matplotlib
+```
+
+Edit `.envrc` before running `direnv allow` if large artifacts should live on a
+different disk. FFmpeg must be available in `PATH` for H.264 validation-video
+export.
+
+## Data
+
+Place downloaded datasets under `$STABLEWM_HOME/datasets`. Dataset names in the
+Hydra configurations are resolved relative to that directory.
 
 ### Working-memory maze
 
-Generate the corrected 64-frame maze dataset with:
+This branch adds a partially observable color-cued maze for testing visual
+working memory. Each episode presents three color cues, inserts a blank delay,
+and then requires three decisions under a local `5 x 5` observation window:
+
+- green: move forward;
+- red: turn left;
+- blue: turn right.
+
+Generate and validate the default 64-frame dataset:
 
 ```bash
 python generate_wm_maze.py --episodes 5000
 python validate_wm_maze.py
 ```
 
-验证会默认导出 episode 0 的带 cue/动作标注 MP4，以及同名逐帧 cue CSV。
-可用 `--episode` 选择样本，或用 `--no-video` 只检查数据契约：
+The dataset is written to `$STABLEWM_HOME/datasets/wm_maze.h5`.
+`validate_wm_maze.py` checks the HDF5 contract and exports an annotated H.264
+video plus a frame-level CSV by default:
 
 ```bash
-python validate_wm_maze.py --episode 12 --fps 4
+python validate_wm_maze.py --episode 12 --fps 4 --padding 24
 python validate_wm_maze.py --no-video
 ```
 
-The generator writes `$STABLEWM_HOME/datasets/wm_maze.h5`. Every episode
-contains three balanced color cues, a blank delay, three locally ambiguous
-decision points, and explicit masks for valid frames, transitions, memory
-supervision, and decisions.
-
 ## Training
 
-`jepa.py` contains the PyTorch implementation of LeWM. Training is configured via [Hydra](https://hydra.cc/) config files under `config/train/`.
+`jepa.py` contains the LeWM model and `module.py` contains its predictor blocks.
+Training is configured with Hydra under `config/train/`.
 
-Before training, set your WandB `entity` and `project` in `config/train/lewm.yaml`:
-
-```yaml
-wandb:
-  config:
-    entity: your_entity
-    project: your_project
-```
-
-To launch working-memory maze training:
+Train the working-memory maze model:
 
 ```bash
 python train.py data=wm_maze
 ```
 
-Evaluate the memory and action probes on decision frames:
+The scheduler retains the paper-style `max_epochs=100` horizon while
+`stop_after_epoch=10` ends the run after epoch 10. Checkpoints are separated by
+task:
 
-```bash
-python eval_wm_maze.py "$STABLEWM_HOME/checkpoints/wm_maze/weights_epoch_10.pt"
+```text
+$STABLEWM_HOME/checkpoints/<task_name>/weights_epoch_<N>.pt
 ```
 
-用第 10 epoch 权重导出正式 validation 视频（同时生成同名 CSV）：
+For the maze task, the selected checkpoint is:
+
+```text
+$STABLEWM_HOME/checkpoints/wm_maze/weights_epoch_10.pt
+```
+
+Validation runs once per epoch and exports the first validation sample to
+`$STABLEWM_HOME/validation`. Videos contain cue and action targets, model
+predictions, confidence values, phase labels, and decision correctness.
+
+```yaml
+validation_video:
+  enabled: true
+  every_n_epochs: 1
+  fps: 4.0
+  sample_index: 0
+  padding: 128
+```
+
+Videos are encoded as H.264/yuv420p with fast-start metadata for browser and
+VS Code compatibility. The outer canvas padding is white and does not resize
+the maze observation.
+
+## Evaluation
+
+Evaluate cue memory and decision accuracy:
+
+```bash
+python eval_wm_maze.py \
+  "$STABLEWM_HOME/checkpoints/wm_maze/weights_epoch_10.pt"
+```
+
+Export an annotated validation video from the same deterministic validation
+split used during training:
 
 ```bash
 python eval_wm_maze.py \
   "$STABLEWM_HOME/checkpoints/wm_maze/weights_epoch_10.pt" \
-  --video-only \
-  --padding 24
+  --video-only
 ```
 
-训练验证默认每个 epoch 把首个验证样本导出到
-`$STABLEWM_HOME/validation/epoch_NNN_episode_00.mp4`，并生成同名 CSV；视频包含
-真实/预测 cue、cue 置信度、真实/预测动作和 decision 正误边框。可通过
-`validation_video.every_n_epochs` 调整频率，或设置
-`validation_video.enabled=false` 关闭。
-
-所有导出器最终写入 H.264/yuv420p MP4，并启用 fast-start，因此可直接在
-VS Code/Chromium 中预览。导出需要系统 `PATH` 中存在 FFmpeg。
-视频默认在内容四周保留 24 px 白色外边距，可通过
-`validation_video.padding` 调整；数据检查工具使用 `--padding`。
-
-Maze checkpoints are saved below `$STABLEWM_HOME/checkpoints/wm_maze`. Other
-training datasets use their own task-named directory, so checkpoints from
-different tasks cannot overwrite one another.
-
-For baseline scripts, see the stable-worldmodel [scripts](https://github.com/galilai-group/stable-worldmodel/tree/main/scripts/train) folder.
+Use `--video-index` to select another validation sample and `--video-output` to
+choose a different output filename.
 
 ## Planning
 
-Evaluation configs live under `config/eval/`. Set the `policy` field to the checkpoint path **relative to `$STABLEWM_HOME`**, without the `_object.ckpt` suffix:
+Evaluation configurations for the original control tasks live under
+`config/eval/`. Set `policy` to the checkpoint path relative to
+`$STABLEWM_HOME`, without the `_object.ckpt` suffix:
 
 ```bash
-# ✓ correct
 python eval.py --config-name=pusht.yaml policy=pusht/lewm
-
-# ✗ incorrect
-python eval.py --config-name=pusht.yaml policy=pusht/lewm_object.ckpt
 ```
 
-## Pretrained Checkpoints
+## Pretrained checkpoints
 
-Pretrained LeWM checkpoints for each environment are mirrored on the Hugging Face
-Hub (model repos), alongside the datasets (dataset repos) in the same collection:
+Official LeWM checkpoints and datasets are available from the
+[Hugging Face collection](https://huggingface.co/collections/quentinll/lewm):
 
 - [`quentinll/lewm-pusht`](https://huggingface.co/quentinll/lewm-pusht)
 - [`quentinll/lewm-cube`](https://huggingface.co/quentinll/lewm-cube)
 - [`quentinll/lewm-tworooms`](https://huggingface.co/quentinll/lewm-tworooms)
 - [`quentinll/lewm-reacher`](https://huggingface.co/quentinll/lewm-reacher)
 
-The full baseline checkpoint suite (PLDM, LeJEPA, IVL, IQL, GCBC, DINO-WM, DINO-WM-noprop)
-is available on [Google Drive](https://drive.google.com/drive/folders/1r31os0d4-rR0mdHc7OlY_e5nh3XT4r4e):
+The full baseline checkpoint suite is available from the original
+[Google Drive archive](https://drive.google.com/drive/folders/1r31os0d4-rR0mdHc7OlY_e5nh3XT4r4e).
 
-<div align="center">
-
-| Method | two-room | pusht | cube | reacher |
-|:---:|:---:|:---:|:---:|:---:|
-| pldm | ✓ | ✓ | ✓ | ✓ |
-| lejepa | ✓ | ✓ | ✓ | ✓ |
-| ivl | ✓ | ✓ | ✓ | — |
-| iql | ✓ | ✓ | ✓ | — |
-| gcbc | ✓ | ✓ | ✓ | — |
-| dinowm | ✓ | ✓ | — | — |
-| dinowm_noprop | ✓ | ✓ | ✓ | ✓ |
-
-</div>
-
-## Loading a checkpoint
-
-### From the Drive archive
-
-Each tar archive contains two files per checkpoint:
-
-- `<name>_object.ckpt` — a serialized Python object for convenient loading; this is what `eval.py` and the `stable_worldmodel` API use
-- `<name>_weight.ckpt` — a weights-only checkpoint (`state_dict`) for cases where you want to load weights into your own model instance
-
-Place the extracted files under `$STABLEWM_HOME/` and load via:
-
-```python
-import stable_worldmodel as swm
-
-# Load the cost model (for MPC)
-cost = swm.policy.AutoCostModel('pusht/lewm')
-```
-
-`AutoCostModel` accepts:
-
-- `run_name` — checkpoint path **relative to `$STABLEWM_HOME`**, without the `_object.ckpt` suffix
-- `cache_dir` — optional override for the checkpoint root (defaults to `$STABLEWM_HOME`)
-
-The returned module is in `eval` mode with its PyTorch weights accessible via `.state_dict()`.
-
-### From the Hugging Face mirror
-
-The HF model repos ship the LeWM checkpoint as a `weights.pt` (state dict) plus a
-`config.json` describing the model. Convert once to produce the `_object.ckpt`
-that `eval.py` expects:
-
-```bash
-# download weights.pt + config.json
-hf download quentinll/lewm-pusht --local-dir $STABLEWM_HOME/hf_pusht
-
-# convert to object checkpoint under $STABLEWM_HOME/pusht/lewm_object.ckpt
-python - <<'PY'
-import json, torch, stable_pretraining as spt
-from pathlib import Path
-from jepa import JEPA
-from module import ARPredictor, Embedder, MLP
-import stable_worldmodel as swm
-
-src = Path(swm.data.utils.get_cache_dir(), "hf_pusht")
-out = Path(swm.data.utils.get_cache_dir(), "pusht", "lewm_object.ckpt")
-
-cfg = json.loads((src / "config.json").read_text())
-encoder = spt.backbone.utils.vit_hf(
-    cfg["encoder"]["size"],
-    patch_size=cfg["encoder"]["patch_size"],
-    image_size=cfg["encoder"]["image_size"],
-    pretrained=False, use_mask_token=False,
-)
-mlp = lambda k: MLP(input_dim=cfg[k]["input_dim"], output_dim=cfg[k]["output_dim"],
-                    hidden_dim=cfg[k]["hidden_dim"], norm_fn=torch.nn.BatchNorm1d)
-model = JEPA(
-    encoder=encoder,
-    predictor=ARPredictor(**cfg["predictor"]),
-    action_encoder=Embedder(**cfg["action_encoder"]),
-    projector=mlp("projector"),
-    pred_proj=mlp("pred_proj"),
-)
-sd = torch.load(src / "weights.pt", map_location="cpu", weights_only=False)
-model.load_state_dict(sd, strict=True)
-out.parent.mkdir(parents=True, exist_ok=True)
-torch.save(model, out)
-PY
-```
-
-After conversion, load via `swm.policy.AutoCostModel('pusht/lewm')` as usual.
+For details on the working-memory modifications in this branch, see
+[`docs/working-memory-maze-changes.md`](docs/working-memory-maze-changes.md).
 
 ## Contact & Contributions
 
-Feel free to open [issues](https://github.com/lucas-maes/le-wm/issues)! For questions or collaborations, please contact `lucas.maes@mila.quebec`
+Feel free to open [issues](https://github.com/lucas-maes/le-wm/issues). For
+questions or collaborations, contact `lucas.maes@mila.quebec`.

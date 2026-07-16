@@ -1,23 +1,19 @@
-import torch
-import torch.nn.functional as F
 from einops import rearrange
 from torch import nn
 
+
 class JEPA(nn.Module):
-    def __init__(self, encoder, predictor, embed_dim=192, **kwargs):
+    def __init__(self, encoder, predictor, embed_dim=192):
         super().__init__()
         self.encoder = encoder
         self.predictor = predictor
         self.action_encoder = nn.Embedding(3, embed_dim)
-        self.projector = nn.Identity()
-        self.pred_proj = nn.Identity()
-        self.embed_dim = embed_dim
 
         self.cue_probe = nn.Linear(embed_dim, 3)
         self.action_probe = nn.Linear(embed_dim, 3)
 
     def encode(self, info):
-        pixels = info['pixels'].float()
+        pixels = info["pixels"].float()
         b, t = pixels.size(0), pixels.size(1)
         pixels = rearrange(pixels, "b t c h w -> (b t) c h w")
         output = self.encoder(pixels, interpolate_pos_encoding=True)
@@ -26,8 +22,6 @@ class JEPA(nn.Module):
         info["emb"] = emb
 
         if "action" in info:
-            # ✨ 绝对致命的修复： squeeze(-1) 挤掉那个多余的维度！
-            # 保证 act_idx 是 (B, T)，查表后 act_emb 就是干净的 (B, T, D)
             act_idx = info["action"].squeeze(-1).long()
             info["act_emb"] = self.action_encoder(act_idx)
         return info

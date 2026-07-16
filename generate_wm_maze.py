@@ -13,17 +13,151 @@ from pathlib import Path
 
 import h5py
 import numpy as np
+from PIL import Image, ImageDraw
 from tqdm import tqdm
 
-from wm_maze_env import H_DELTA, TURN_TO_COLOR, WMMazeEnv
-
 COLOR_TO_IDX = {"red": 0, "blue": 1, "green": 2}
+COLORS_RGB = {"red": (220, 50, 50), "blue": (50, 100, 240), "green": (50, 200, 50)}
+COLOR_TO_TURN = {"red": 1, "blue": 2, "green": 0}
+TURN_TO_COLOR = {1: "red", 2: "blue", 0: "green"}
+H_DELTA = {0: (-1, 0), 1: (0, 1), 2: (1, 0), 3: (0, -1)}
+CELL = 14
+BORDER = 7
 
 
 def turn_heading(heading, action):
     if action == 0:
         return heading
     return (heading - 1) % 4 if action == 1 else (heading + 1) % 4
+
+
+class WMMazeEnv:
+    """Partially observable maze used by the dataset generator."""
+
+    def __init__(
+        self, cue_sequence=None, cue_duration=30, delay_duration=60, view_radius=2
+    ):
+        self.cue_sequence = cue_sequence
+        self.cue_duration = cue_duration
+        self.delay_duration = delay_duration
+        self.view_radius = view_radius
+        self._reset_state()
+
+    def _reset_state(self):
+        self.path_idx = 0
+        self.heading = 0
+        self.inter_done = 0
+        self.phase = "cue"
+        self.phase_frame = 0
+        self.cue_i = 0
+        self.border = None
+        self.done = False
+        self.success = False
+        self.grid = None
+        self.path = []
+        self.intersections = []
+
+    def reset(self, maze=None):
+        self._reset_state()
+        if self.cue_sequence:
+            self.border = COLORS_RGB[self.cue_sequence[0]]
+        if maze is not None:
+            self.grid = np.asarray(maze["grid"], dtype=np.int32)
+            self.path = list(maze["path"])
+            self.intersections = list(maze["intersections"])
+            self.heading = maze["start_heading"]
+        return self._render(), {}
+
+    @property
+    def pos(self):
+        return self.path[self.path_idx]
+
+    def step(self, action):
+        reward = 0.0
+        if self.phase == "cue":
+            self.phase_frame += 1
+            if self.phase_frame >= self.cue_duration:
+                self.cue_i += 1
+                self.phase_frame = 0
+                if self.cue_i >= len(self.cue_sequence):
+                    self.phase = "delay"
+                    self.border = None
+                else:
+                    self.border = COLORS_RGB[self.cue_sequence[self.cue_i]]
+        elif self.phase == "delay":
+            self.phase_frame += 1
+            if self.phase_frame >= self.delay_duration:
+                self.phase = "action"
+        elif self.phase == "action":
+            for index, (path_index, _) in enumerate(self.intersections):
+                if self.path_idx == path_index and self.inter_done == index:
+                    expected = COLOR_TO_TURN[self.cue_sequence[index]]
+                    if action == expected:
+                        reward = 0.2
+                        self.inter_done += 1
+                        self.heading = turn_heading(self.heading, action)
+                    else:
+                        reward = -0.5
+                        self.done = True
+                    break
+            if not self.done and self.path_idx < len(self.path) - 1:
+                previous = self.pos
+                self.path_idx += 1
+                current = self.pos
+                movement = (current[0] - previous[0], current[1] - previous[1])
+                self.heading = next(
+                    heading for heading, delta in H_DELTA.items() if delta == movement
+                )
+            row, col = self.pos
+            if self.grid[row, col] == 2:
+                reward = 1.0
+                self.success = True
+                self.done = True
+        return (
+            self._render(),
+            reward,
+            self.done,
+            False,
+            {"success": self.success, "inter_done": self.inter_done},
+        )
+
+    def _render(self):
+        if self.phase == "delay":
+            return np.zeros((224, 224, 3), dtype=np.uint8)
+        size = CELL * 15 + 2 * BORDER
+        image = Image.new("RGB", (size, size), (240, 240, 240))
+        draw = ImageDraw.Draw(image)
+        for row in range(15):
+            for col in range(15):
+                x0, y0 = BORDER + col * CELL, BORDER + row * CELL
+                visible = (
+                    abs(row - self.pos[0]) <= self.view_radius
+                    and abs(col - self.pos[1]) <= self.view_radius
+                )
+                value = self.grid[row, col] if visible else 1
+                fill = {0: (250, 250, 250), 1: (50, 50, 60), 2: (250, 250, 250)}[value]
+                draw.rectangle(
+                    [x0, y0, x0 + CELL, y0 + CELL], fill=fill, outline=(180, 180, 185)
+                )
+        row, col = self.pos
+        cx = BORDER + col * CELL + CELL // 2
+        cy = BORDER + row * CELL + CELL // 2
+        radius = max(CELL // 3, 2)
+        draw.ellipse(
+            [cx - radius, cy - radius, cx + radius, cy + radius],
+            fill=(220, 50, 50),
+            outline=(160, 30, 30),
+        )
+        dr, dc = H_DELTA[self.heading]
+        draw.line(
+            [cx, cy, cx + dc * radius * 3, cy + dr * radius * 3],
+            fill=(255, 255, 255),
+            width=2,
+        )
+        draw.rectangle(
+            [0, 0, size - 1, size - 1], outline=self.border or (0, 0, 0), width=BORDER
+        )
+        return np.asarray(image.resize((224, 224), Image.NEAREST), dtype=np.uint8)
 
 
 def generate_maze(rng, required_actions=None):
@@ -149,14 +283,13 @@ def generate_maze(rng, required_actions=None):
     raise RuntimeError("failed to generate a valid maze")
 
 
-def rollout_episode(rng, target_len, cue_duration, delay_min, delay_max, seed):
+def rollout_episode(rng, target_len, cue_duration, delay_min, delay_max):
     maze = generate_maze(rng, rng.permutation(3))
     delay = int(rng.integers(delay_min, delay_max + 1))
     env = WMMazeEnv(
         cue_sequence=maze["cue_sequence"],
         cue_duration=cue_duration,
         delay_duration=delay,
-        seed=seed,
         view_radius=2,
     )
     obs, _ = env.reset(maze=maze)
@@ -271,7 +404,7 @@ def generate_dataset(
             data = None
             while data is None:
                 data = rollout_episode(
-                    rng, target_len, cue_duration, delay_min, delay_max, seed + episode
+                    rng, target_len, cue_duration, delay_min, delay_max
                 )
             start = episode * target_len
             end = start + target_len

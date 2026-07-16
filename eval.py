@@ -14,6 +14,7 @@ from sklearn import preprocessing
 from torchvision.transforms import v2 as transforms
 import stable_worldmodel as swm
 
+
 def img_transform(cfg):
     transform = transforms.Compose(
         [
@@ -40,11 +41,10 @@ def get_episodes_length(dataset, episodes):
 def get_dataset(cfg, dataset_name):
     dataset_path = Path(cfg.cache_dir or swm.data.utils.get_cache_dir())
     dataset = swm.data.HDF5Dataset(
-        dataset_name,
-        keys_to_cache=cfg.dataset.keys_to_cache,
-        cache_dir=dataset_path,
+        dataset_name, keys_to_cache=cfg.dataset.keys_to_cache, cache_dir=dataset_path
     )
     return dataset
+
 
 @hydra.main(version_base=None, config_path="./config/eval", config_name="pusht")
 def run(cfg: DictConfig):
@@ -58,10 +58,7 @@ def run(cfg: DictConfig):
     world = swm.World(**cfg.world, image_shape=(224, 224))
 
     # create the transform
-    transform = {
-        "pixels": img_transform(cfg),
-        "goal": img_transform(cfg),
-    }
+    transform = {"pixels": img_transform(cfg), "goal": img_transform(cfg)}
 
     dataset = get_dataset(cfg, cfg.eval.dataset_name)
     stats_dataset = dataset  # get_dataset(cfg, cfg.dataset.stats)

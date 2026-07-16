@@ -8,7 +8,6 @@ from pathlib import Path
 import hydra
 import stable_pretraining as spt
 import torch
-from omegaconf import open_dict
 
 from generate_wm_maze import default_output_path
 from hdf5_dataset import HDF5Dataset
@@ -19,8 +18,6 @@ from wm_maze_video import WMMazeValidationVideo
 def load_model(checkpoint, device):
     with hydra.initialize(version_base=None, config_path="config/train"):
         cfg = hydra.compose(config_name="lewm", overrides=["data=wm_maze"])
-    with open_dict(cfg):
-        cfg.model.action_encoder.input_dim = 1
     model = hydra.utils.instantiate(cfg.model).to(device).eval()
     saved = torch.load(checkpoint, map_location=device)
     raw_state = saved.get("state_dict", saved)
@@ -48,23 +45,22 @@ def evaluate(model, cfg, dataset, device, max_episodes):
     count = min(len(dataset), max_episodes or len(dataset))
     for index in range(count):
         batch = preprocess(dataset[index])
-        batch = {
-            key: value.unsqueeze(0).to(device)
-            for key, value in batch.items()
-        }
+        batch = {key: value.unsqueeze(0).to(device) for key, value in batch.items()}
         encoded = model.encode(batch)
-        context = encoded["emb"][:, :cfg.history_size]
+        context = encoded["emb"][:, : cfg.history_size]
         memory = model.predictor.memory_states(context)
         action_logits = model.action_probe(memory)
         cue_logits = model.cue_probe(memory)
 
-        action_labels = batch["action"][:, :cfg.history_size].squeeze(-1)
-        cue_labels = batch["cue_color"][:, :cfg.history_size]
-        decision_mask = batch["decision_mask"][:, :cfg.history_size].bool()
-        memory_mask = batch["memory_mask"][:, :cfg.history_size].bool()
+        action_labels = batch["action"][:, : cfg.history_size].squeeze(-1)
+        cue_labels = batch["cue_color"][:, : cfg.history_size]
+        decision_mask = batch["decision_mask"][:, : cfg.history_size].bool()
+        memory_mask = batch["memory_mask"][:, : cfg.history_size].bool()
 
         action_correct += int(
-            (action_logits.argmax(-1)[decision_mask] == action_labels[decision_mask]).sum()
+            (
+                action_logits.argmax(-1)[decision_mask] == action_labels[decision_mask]
+            ).sum()
         )
         cue_correct += int(
             (cue_logits.argmax(-1)[decision_mask] == cue_labels[decision_mask]).sum()
@@ -88,9 +84,7 @@ def export_validation_video(
     """Export one deterministic sample from the same validation split as train.py."""
     generator = torch.Generator().manual_seed(cfg.seed)
     _, validation = spt.data.random_split(
-        dataset,
-        lengths=[cfg.train_split, 1 - cfg.train_split],
-        generator=generator,
+        dataset, lengths=[cfg.train_split, 1 - cfg.train_split], generator=generator
     )
     if not 0 <= sample_index < len(validation):
         raise IndexError(
@@ -99,10 +93,7 @@ def export_validation_video(
 
     preprocess = get_img_preprocessor("pixels", "pixels", cfg.img_size)
     sample = preprocess(validation[sample_index])
-    batch = {
-        key: value.unsqueeze(0).to(device)
-        for key, value in sample.items()
-    }
+    batch = {key: value.unsqueeze(0).to(device) for key, value in sample.items()}
     encoded = model.encode(batch)
     context = encoded["emb"][:, : cfg.history_size]
     memory = model.predictor.memory_states(context)
@@ -115,14 +106,8 @@ def export_validation_video(
     epoch = int(match.group(1)) if match else 0
     if output is None:
         root = Path(os.environ.get("STABLEWM_HOME", "data")) / "validation"
-        output = root / (
-            f"formal_epoch_{epoch:03d}_validation_{sample_index:04d}.mp4"
-        )
-    exporter = WMMazeValidationVideo(
-        fps=fps,
-        sample_index=0,
-        padding=padding,
-    )
+        output = root / (f"formal_epoch_{epoch:03d}_validation_{sample_index:04d}.mp4")
+    exporter = WMMazeValidationVideo(fps=fps, sample_index=0, padding=padding)
     exporter._write(epoch, batch, outputs, video_path=output)
 
 

@@ -71,11 +71,3 @@ class HDF5Dataset(Dataset):
             return self._cache[col]
         self._open()
         return self.h5_file[col][:]
-
-    def get_row_data(self, row_idx):
-        self._open()
-        return {key: self.h5_file[key][row_idx] for key in self._keys}
-
-    def get_dim(self, col):
-        data = self.get_col_data(col)
-        return int(np.prod(data.shape[1:])) if data.ndim > 1 else 1

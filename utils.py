@@ -3,6 +3,7 @@ import torch
 from stable_pretraining import data as dt
 from lightning.pytorch.callbacks import Callback
 
+
 def get_img_preprocessor(source: str, target: str, img_size: int = 224):
     imagenet_stats = dt.dataset_stats.ImageNet
     to_image = dt.transforms.ToImage(**imagenet_stats, source=source, target=target)
@@ -29,7 +30,10 @@ def get_column_normalizer(dataset, source: str, target: str):
     data = data[~torch.isnan(data).any(dim=1)]
     mean = data.mean(0, keepdim=True).clone()
     std = data.std(0, keepdim=True).clone()
-    return dt.transforms.WrapTorchTransform(ZScoreNormalizer(mean, std), source=source, target=target)
+    return dt.transforms.WrapTorchTransform(
+        ZScoreNormalizer(mean, std), source=source, target=target
+    )
+
 
 class SaveCkptCallback(Callback):
     """Callback to save model checkpoint after each epoch using save_pretrained."""
@@ -52,11 +56,12 @@ class SaveCkptCallback(Callback):
 
     def _save(self, model, epoch):
         from stable_worldmodel.wm.utils import save_pretrained
+
         save_pretrained(
             model,
             run_name=self.run_name,
             config=self.cfg,
-            filename=f'weights_epoch_{epoch}.pt',
+            filename=f"weights_epoch_{epoch}.pt",
         )
 
 

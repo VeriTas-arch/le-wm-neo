@@ -136,7 +136,8 @@ generate_wm_maze.py
 
 ## 5. 环境与视觉捷径修正
 
-`wm_maze_env.py` 做了以下修改：
+The maze environment is now kept next to its only caller in
+`generate_wm_maze.py`. It includes the following changes:
 
 - `reset()` 可以直接接收 maze，确保第一帧同时包含 maze 和首个 cue；
 - observation 改为以 agent 为中心、半径为 2 的局部视野；
@@ -150,10 +151,11 @@ generate_wm_maze.py
 
 ## 6. Masked 训练目标
 
-训练前向逻辑从临时的 `train_fix.py` 整理为：
+The training forward pass was moved out of the temporary `train_fix.py` and is
+now defined directly in its only caller:
 
 ```text
-wm_maze_training.py
+train.py
 ```
 
 当前总损失为：
@@ -271,7 +273,7 @@ $STABLEWM_HOME/
 - 同步设置 stable-worldmodel 与 stable-pretraining 的输出位置；
 - HDF5 maze 数据使用本地 reader；
 - 不再把 `*_mask` 当作连续状态做 z-score；
-- 使用 `wm_maze_training.wm_maze_forward`；
+- uses the local `wm_maze_forward` implementation in `train.py`;
 - 设置 `torch.set_float32_matmul_precision("high")`，利用 GPU Tensor Core；
 - 保留每 epoch 权重导出和 Lightning checkpoint。
 
@@ -383,6 +385,9 @@ MP4。这样生成的视频可以直接在 VS Code/Chromium 中预览。若 FFmp
 - `run_inference_test.py`
 - `verify_new_dataset.py`
 - `visualize_dataset.py`
+- `wm_maze_env.py` (merged into `generate_wm_maze.py`)
+- `wm_maze_training.py` (merged into `train.py`)
+- `video_export.py` (merged into `wm_maze_video.py`)
 - notebook checkpoint 配置副本
 - 临时数据预览图片
 
