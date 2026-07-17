@@ -130,6 +130,7 @@ validation_video:
   fps: 4.0
   sample_index: 0
   padding: 128
+  video_preset: standard
 ```
 
 Videos are encoded as H.264/yuv420p with fast-start metadata for browser and
@@ -145,17 +146,40 @@ python eval_wm_maze.py \
   "$STABLEWM_HOME/checkpoints/wm_maze/weights_epoch_10.pt"
 ```
 
-Export an annotated validation video from the same deterministic validation
+Two named export presets are available:
+
+| Preset | Scale | H.264 CRF | Encoder preset | Use case |
+|:--|--:|--:|:--|:--|
+| `standard` | 1x | 18 | medium | Routine validation |
+| `report` | 2x | 12 | slow | Reports and presentations |
+
+Export the standard annotated video from the same deterministic validation
 split used during training:
 
 ```bash
 python eval_wm_maze.py \
   "$STABLEWM_HOME/checkpoints/wm_maze/weights_epoch_10.pt" \
-  --video-only
+  --video-only \
+  --video-preset standard
+```
+
+Export the high-resolution report version:
+
+```bash
+python eval_wm_maze.py \
+  "$STABLEWM_HOME/checkpoints/wm_maze/weights_epoch_10.pt" \
+  --video-only \
+  --video-preset report
 ```
 
 Use `--video-index` to select another validation sample and `--video-output` to
-choose a different output filename.
+choose a different output filename. Without `--video-output`, report videos use
+an additional `_report` filename suffix and do not overwrite the standard
+version. The data validator accepts the same preset option:
+
+```bash
+python validate_wm_maze.py --episode 0 --video-preset report
+```
 
 ## Planning
 

@@ -17,6 +17,10 @@ ACTION_NAMES = ("forward", "left", "right")
 CUE_BGR = {"red": (50, 50, 220), "blue": (240, 100, 50), "green": (50, 200, 50)}
 IMAGENET_MEAN = torch.tensor((0.485, 0.456, 0.406)).view(1, 3, 1, 1)
 IMAGENET_STD = torch.tensor((0.229, 0.224, 0.225)).view(1, 3, 1, 1)
+VIDEO_PRESETS = {
+    "standard": {"scale": 1, "crf": 18, "encoder_preset": "medium"},
+    "report": {"scale": 2, "crf": 12, "encoder_preset": "slow"},
+}
 
 
 def add_canvas_padding(frame, padding=24, color=(255, 255, 255)):
@@ -36,7 +40,7 @@ def add_canvas_padding(frame, padding=24, color=(255, 255, 255)):
 class H264VideoWriter:
     """Write an OpenCV frame stream as a browser-compatible H.264 MP4."""
 
-    def __init__(self, path, fps, frame_size, crf=18):
+    def __init__(self, path, fps, frame_size, crf=18, encoder_preset="medium"):
         self.path = Path(path).expanduser().resolve()
         self.path.parent.mkdir(parents=True, exist_ok=True)
         self.ffmpeg = shutil.which("ffmpeg")
@@ -48,6 +52,7 @@ class H264VideoWriter:
                 f"H.264 yuv420p requires even dimensions, got {width}x{height}"
             )
         self.crf = crf
+        self.encoder_preset = encoder_preset
         self._closed = False
         self._raw_path = self._temporary_path(".raw.mp4")
         self._encoded_path = self._temporary_path(".h264.mp4")
@@ -89,6 +94,8 @@ class H264VideoWriter:
             "-an",
             "-c:v",
             "libx264",
+            "-preset",
+            self.encoder_preset,
             "-crf",
             str(self.crf),
             "-pix_fmt",
@@ -148,16 +155,27 @@ def _to_rgb_uint8(normalized_pixels):
 class WMMazeValidationVideo(Callback):
     """Write one annotated MP4 and prediction CSV per validation epoch."""
 
-    def __init__(self, every_n_epochs=1, fps=4.0, sample_index=0, padding=24):
+    def __init__(
+        self,
+        every_n_epochs=1,
+        fps=4.0,
+        sample_index=0,
+        padding=24,
+        video_preset="standard",
+    ):
         super().__init__()
         if every_n_epochs < 1:
             raise ValueError("every_n_epochs must be at least 1")
         if padding < 0:
             raise ValueError("padding cannot be negative")
+        if video_preset not in VIDEO_PRESETS:
+            raise ValueError(f"unknown video preset: {video_preset}")
         self.every_n_epochs = every_n_epochs
         self.fps = fps
         self.sample_index = sample_index
         self.padding = padding
+        self.video_preset = video_preset
+        self.preset = VIDEO_PRESETS[video_preset]
         self._written_epoch = None
 
     def on_validation_epoch_start(self, trainer, pl_module):
@@ -214,11 +232,17 @@ class WMMazeValidationVideo(Callback):
         csv_path = video_path.with_suffix(".csv")
         height, width = pixels.shape[1:3]
         panel_width = 430
-        canvas_width = width + panel_width + 2 * self.padding
-        canvas_height = height + 2 * self.padding
+        base_width = width + panel_width + 2 * self.padding
+        base_height = height + 2 * self.padding
+        canvas_width = base_width * self.preset["scale"]
+        canvas_height = base_height * self.preset["scale"]
         rows = []
         with H264VideoWriter(
-            video_path, self.fps, (canvas_width, canvas_height)
+            video_path,
+            self.fps,
+            (canvas_width, canvas_height),
+            crf=self.preset["crf"],
+            encoder_preset=self.preset["encoder_preset"],
         ) as writer:
             for step in np.flatnonzero(valid):
                 true_cue_name = CUE_NAMES[cue_true[step]]
@@ -255,6 +279,18 @@ class WMMazeValidationVideo(Callback):
                         1,
                         cv2.LINE_AA,
                     )
+                swatch_label_x = width + panel_width - 105
+                for label, label_y in (("GT", 87), ("Pred", 128)):
+                    cv2.putText(
+                        canvas,
+                        label,
+                        (swatch_label_x, label_y),
+                        cv2.FONT_HERSHEY_SIMPLEX,
+                        0.45,
+                        (235, 235, 235),
+                        1,
+                        cv2.LINE_AA,
+                    )
                 cv2.rectangle(
                     canvas,
                     (width + panel_width - 55, 64),
@@ -276,9 +312,14 @@ class WMMazeValidationVideo(Callback):
                         else (0, 0, 230)
                     )
                     cv2.rectangle(canvas, (2, 2), (width - 3, height - 3), border, 4)
-                writer.write(
-                    add_canvas_padding(canvas, self.padding, color=(28, 28, 28))
-                )
+                frame = add_canvas_padding(canvas, self.padding, color=(28, 28, 28))
+                if self.preset["scale"] != 1:
+                    frame = cv2.resize(
+                        frame,
+                        (canvas_width, canvas_height),
+                        interpolation=cv2.INTER_LANCZOS4,
+                    )
+                writer.write(frame)
                 rows.append(
                     {
                         "epoch": epoch,
@@ -316,6 +357,7 @@ class WMMazeValidationVideo(Callback):
         print(f"Validation video: {video_path}")
         print(
             f"Validation video canvas: {canvas_width}x{canvas_height} "
-            f"(padding={self.padding}px)"
+            f"(preset={self.video_preset}, padding={self.padding}px, "
+            f"crf={self.preset['crf']})"
         )
         print(f"Validation cue predictions: {csv_path}")

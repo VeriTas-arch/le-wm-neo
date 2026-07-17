@@ -249,6 +249,7 @@ def run(cfg):
                 fps=cfg.validation_video.fps,
                 sample_index=cfg.validation_video.sample_index,
                 padding=cfg.validation_video.padding,
+                video_preset=cfg.validation_video.video_preset,
             )
         )
 

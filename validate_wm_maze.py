@@ -10,7 +10,7 @@ import h5py
 import numpy as np
 
 from generate_wm_maze import COLOR_TO_TURN, default_output_path
-from wm_maze_video import H264VideoWriter, add_canvas_padding
+from wm_maze_video import H264VideoWriter, VIDEO_PRESETS, add_canvas_padding
 
 REQUIRED_KEYS = {
     "pixels",
@@ -58,7 +58,9 @@ def _episode_data(handle, episode):
     }
 
 
-def export_episode(path, episode, video_path, fps, padding=24):
+def export_episode(
+    path, episode, video_path, fps, padding=24, video_preset="standard"
+):
     with h5py.File(path, "r") as handle:
         data = _episode_data(handle, episode)
 
@@ -80,10 +82,17 @@ def export_episode(path, episode, video_path, fps, padding=24):
     csv_path = video_path.with_suffix(".csv")
     frame_height, frame_width = data["pixels"].shape[1:3]
     panel_width = 360
-    canvas_width = frame_width + panel_width + 2 * padding
-    canvas_height = frame_height + 2 * padding
+    preset = VIDEO_PRESETS[video_preset]
+    canvas_width = (frame_width + panel_width + 2 * padding) * preset["scale"]
+    canvas_height = (frame_height + 2 * padding) * preset["scale"]
     rows = []
-    with H264VideoWriter(video_path, fps, (canvas_width, canvas_height)) as writer:
+    with H264VideoWriter(
+        video_path,
+        fps,
+        (canvas_width, canvas_height),
+        crf=preset["crf"],
+        encoder_preset=preset["encoder_preset"],
+    ) as writer:
         for step in np.flatnonzero(valid):
             cue_name = CUE_NAMES[cue[step]]
             action_name = ACTION_NAMES[action[step]]
@@ -129,7 +138,14 @@ def export_episode(path, episode, video_path, fps, padding=24):
                     (0, 215, 255),
                     thickness=4,
                 )
-            writer.write(add_canvas_padding(canvas, padding))
+            frame = add_canvas_padding(canvas, padding)
+            if preset["scale"] != 1:
+                frame = cv2.resize(
+                    frame,
+                    (canvas_width, canvas_height),
+                    interpolation=cv2.INTER_LANCZOS4,
+                )
+            writer.write(frame)
             rows.append(
                 {
                     "episode": episode,
@@ -224,6 +240,12 @@ def main():
     parser.add_argument("--episode", type=int, default=0)
     parser.add_argument("--fps", type=float, default=4.0)
     parser.add_argument(
+        "--video-preset",
+        choices=VIDEO_PRESETS,
+        default="standard",
+        help="encoding preset (default: standard)",
+    )
+    parser.add_argument(
         "--padding",
         type=int,
         default=24,
@@ -244,8 +266,18 @@ def main():
         root = Path(
             os.environ.get("STABLEWM_HOME", Path(args.path).resolve().parent.parent)
         )
-        video = args.video or root / "validation" / f"episode_{args.episode:04d}.mp4"
-        export_episode(args.path, args.episode, video, args.fps, args.padding)
+        suffix = "_report" if args.video_preset == "report" else ""
+        video = args.video or root / "validation" / (
+            f"episode_{args.episode:04d}{suffix}.mp4"
+        )
+        export_episode(
+            args.path,
+            args.episode,
+            video,
+            args.fps,
+            args.padding,
+            args.video_preset,
+        )
 
 
 if __name__ == "__main__":

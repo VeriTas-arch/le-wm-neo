@@ -38,6 +38,7 @@ validation_video:
   fps: 4.0
   sample_index: 0
   padding: 128
+  video_preset: standard
 hydra:
   run:
     dir: .

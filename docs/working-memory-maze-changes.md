@@ -296,8 +296,13 @@ validation_video:
   every_n_epochs: 1
   fps: 4.0
   sample_index: 0
-  padding: 24
+  padding: 128
+  video_preset: standard
 ```
+
+`standard` uses 1x output with H.264 CRF 18. `report` uses 2x output,
+CRF 12, and the slow encoder preset; select it with
+`--video-preset report` for presentation material.
 
 ## 11. 新增正式工具
 

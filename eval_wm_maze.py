@@ -12,7 +12,7 @@ import torch
 from generate_wm_maze import default_output_path
 from hdf5_dataset import HDF5Dataset
 from utils import get_img_preprocessor
-from wm_maze_video import WMMazeValidationVideo
+from wm_maze_video import VIDEO_PRESETS, WMMazeValidationVideo
 
 
 def load_model(checkpoint, device):
@@ -79,7 +79,16 @@ def evaluate(model, cfg, dataset, device, max_episodes):
 
 @torch.inference_mode()
 def export_validation_video(
-    model, cfg, dataset, checkpoint, device, sample_index, fps, padding, output
+    model,
+    cfg,
+    dataset,
+    checkpoint,
+    device,
+    sample_index,
+    fps,
+    padding,
+    video_preset,
+    output,
 ):
     """Export one deterministic sample from the same validation split as train.py."""
     generator = torch.Generator().manual_seed(cfg.seed)
@@ -106,8 +115,16 @@ def export_validation_video(
     epoch = int(match.group(1)) if match else 0
     if output is None:
         root = Path(os.environ.get("STABLEWM_HOME", "data")) / "validation"
-        output = root / (f"formal_epoch_{epoch:03d}_validation_{sample_index:04d}.mp4")
-    exporter = WMMazeValidationVideo(fps=fps, sample_index=0, padding=padding)
+        suffix = "_report" if video_preset == "report" else ""
+        output = root / (
+            f"formal_epoch_{epoch:03d}_validation_{sample_index:04d}{suffix}.mp4"
+        )
+    exporter = WMMazeValidationVideo(
+        fps=fps,
+        sample_index=0,
+        padding=padding,
+        video_preset=video_preset,
+    )
     exporter._write(epoch, batch, outputs, video_path=output)
 
 
@@ -125,6 +142,12 @@ def main():
     parser.add_argument("--video-index", type=int, default=0)
     parser.add_argument("--video-output", type=Path)
     parser.add_argument("--fps", type=float, default=4.0)
+    parser.add_argument(
+        "--video-preset",
+        choices=VIDEO_PRESETS,
+        default="standard",
+        help="encoding preset (default: standard)",
+    )
     parser.add_argument(
         "--padding",
         type=int,
@@ -155,6 +178,7 @@ def main():
             args.video_index,
             args.fps,
             args.padding,
+            args.video_preset,
             args.video_output,
         )
 
